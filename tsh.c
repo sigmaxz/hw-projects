@@ -172,7 +172,6 @@ void eval(char *cmdline)
 	sigset_t mask;
 	
 	parseline(cmdline, argvTask);
-	if(strcmp( argvTask[0], "") == 0) return;
 	if(builtin_cmd(argvTask)){}		 // check for a built in and runs immediately 
 	else // reaches for non-built in
 	{
@@ -184,6 +183,7 @@ void eval(char *cmdline)
 			if(( npid = fork()) == 0) // child run in bg
 			{
 				sigprocmask(SIG_UNBLOCK, &mask, NULL); // unblock mask for child
+				setpgid(0,0);
 				if(execve(argvTask[0], argvTask, environ) < 0)
 				{
 					printf("error on execv bg %s \n", argvTask[0]);
@@ -196,12 +196,10 @@ void eval(char *cmdline)
 				printf( "[%d] (%d) %s", maxjid(jobs) , npid , cmdline);
 
 				sigprocmask(SIG_UNBLOCK, &mask, NULL); // unblock the parent 
-				return;
 			}
 		}
 		else // runs if FG
 		{
-			printf("wtf");
 			if(( npid = fork()) == 0) // child run in fg 
 			{
 				sigprocmask(SIG_UNBLOCK, &mask, NULL); // unblock child 
@@ -217,11 +215,10 @@ void eval(char *cmdline)
 				sigprocmask(SIG_UNBLOCK, &mask, NULL); // unblock the parent 
 
 				waitfg(npid);	//waiting for fg process to finish
-				return;
 			}
 		}
 	}
-    return;
+  return;
 }
 
 /* 
@@ -325,7 +322,7 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-	while( fgpid(jobs) != 0 )
+	while( fgpid(jobs) == pid )
 	{
 		sleep(1);
 	}
@@ -346,12 +343,13 @@ void waitfg(pid_t pid)
 void sigchld_handler(int sig) 
 {
 	pid_t pid;
-	while (( pid = waitpid(-1,NULL, 0)) > 0)
+	int status;
+	while (( pid = waitpid(-1,&status, WNOHANG)) > 0)
 	{
 		deletejob(jobs, pid);
 	}
-	if( errno != ECHILD) 
-		printf("problem sig handler");
+	//if( errno != ECHILD) 
+//		printf("problem sig handler");
 
 	return;
 }
@@ -363,6 +361,11 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+	pid_t fpid = fgpid(jobs); // gets the fg process
+	kill(fpid, SIGINT); // sending to the fg process 
+	printf("Job [%d] (%d) Terminated by Signal %d\n",(getjobpid(jobs,fpid))->jid, fpid, SIGINT);
+	deletejob(jobs,fpid);
+	
     return;
 }
 
@@ -373,6 +376,10 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+	pid_t fpid = fgpid(jobs); // gets the fg process
+	kill(fpid, SIGTSTP); // sending to the fg process 
+	printf("Job [%d] (%d) Terminated by Signal %d\n",(getjobpid(jobs,fpid))->jid, fpid, SIGTSTP);
+	getjobpid(jobs, fpid)->state = ST;
     return;
 }
 
