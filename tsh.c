@@ -132,7 +132,7 @@ int main(int argc, char **argv)
 
     /* Execute the shell's read/eval loop */
     while (1) {
-
+			
 	/* Read command line */
 	if (emit_prompt) {
 	    printf("%s", prompt);
@@ -170,7 +170,6 @@ void eval(char *cmdline)
 	char* argvTask[MAXARGS]; // holds arguments for other calls
 	pid_t npid; // new pid temp var
 	sigset_t mask;
-	
 	parseline(cmdline, argvTask);
 	if(builtin_cmd(argvTask)){}		 // check for a built in and runs immediately 
 	else // reaches for non-built in
@@ -203,6 +202,7 @@ void eval(char *cmdline)
 			if(( npid = fork()) == 0) // child run in fg 
 			{
 				sigprocmask(SIG_UNBLOCK, &mask, NULL); // unblock child 
+				setpgid(0,0);
 				if(execve(argvTask[0], argvTask, environ) < 0) // use exec call and check for error 
 				{
 					printf("error on execve fg %s \n", argvTask[0]); 
@@ -291,10 +291,12 @@ int builtin_cmd(char **argv)
 		}
 		else if(strcmp(argv[0], "bg")==0)
 		{
+			do_bgfg(argv);
 			return 1; 
 		}
 		else if(strcmp(argv[0], "fg")==0)
 		{
+			do_bgfg(argv);
 			return 1; 
 		}
 		else if(strcmp(argv[0], "jobs")==0)
@@ -314,6 +316,41 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv) 
 {
+		if(strcmp(argv[0], "bg")==0) // bg continue
+		{
+			if(strstr(argv[1], "%") != NULL) // looks for the % of the jid
+			{
+				int ijid = atoi(argv[1] +1);
+				getjobjid(jobs, ijid)->state = BG;
+				kill(getjobjid(jobs,ijid)->pid, SIGCONT); // sends the signal cont
+				printf( "[%d] (%d) %s", ijid , getjobjid(jobs,ijid)->pid , getjobjid(jobs,ijid)->cmdline);
+			}
+			else // this block is for the pid bg
+			{
+				int ipid = atoi(argv[1]);
+				getjobpid(jobs,ipid)->state = BG;
+				kill(ipid,SIGCONT);
+				printf( "[%d] (%d) %s", getjobpid(jobs,ipid)->jid ,ipid,getjobjid(jobs,ipid)->cmdline);
+			}
+		}
+		else // fg block
+		{
+			if(strstr(argv[1], "%") != NULL) // looks for the % of the jid
+			{
+				int ijid = atoi(argv[1] +1);
+				getjobjid(jobs, ijid)->state = FG;
+				kill(getjobjid(jobs,ijid)->pid, SIGCONT); // sends the signal cont
+			//	printf( "[%d] (%d) %s", ijid , getjobjid(jobs,ijid)->pid , getjobjid(jobs,ijid)->cmdline);
+			}
+			else // this block is for the pid bg
+			{
+				int ipid = atoi(argv[1]);
+				getjobpid(jobs,ipid)->state = FG;
+				kill(ipid,SIGCONT);
+			//	printf( "[%d] (%d) %s", getjobpid(jobs,ipid)->jid ,ipid,getjobjid(jobs,ipid)->cmdline);
+			}
+			
+		}
     return;
 }
 
@@ -322,7 +359,7 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-	while( fgpid(jobs) == pid )
+	while( (fgpid(jobs) == pid) )
 	{
 		sleep(1);
 	}
@@ -378,7 +415,7 @@ void sigtstp_handler(int sig)
 {
 	pid_t fpid = fgpid(jobs); // gets the fg process
 	kill(fpid, SIGTSTP); // sending to the fg process 
-	printf("Job [%d] (%d) Terminated by Signal %d\n",(getjobpid(jobs,fpid))->jid, fpid, SIGTSTP);
+	printf("Job [%d] (%d) Stopped by Signal %d\n",(getjobpid(jobs,fpid))->jid, fpid, SIGTSTP);
 	getjobpid(jobs, fpid)->state = ST;
     return;
 }
